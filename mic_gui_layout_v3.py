@@ -19,7 +19,7 @@ import tkinter.font as tkFont
 ## other imports + encryption
 import smtplib
 import os
-import pandas as pd
+#import pandas as pd
 from datetime import date
 from datetime import datetime
 import requests
@@ -39,6 +39,7 @@ creds = ServiceAccountCredentials.from_json_keyfile_name("creds.json", scope)
 client = gspread.authorize(creds)
 
 # existing spreadsheet
+spreadsheet = client.open("Database_v1")
 pic_assignment = client.open("Database_v1").worksheet("pic_assignment")
 mic_update = client.open("Database_v1").worksheet("mic_update")
 email_update = client.open("Database_v1").worksheet("email_update")
@@ -50,10 +51,10 @@ pic_assignment_list = pic_assignment.get_all_records() #returns a list of dictio
 mic_update_list = mic_update.get_all_records()
 
 # dataframes
-pic_df = pd.DataFrame(pic_assignment_list)
+#pic_df = pd.DataFrame(pic_assignment_list)
 
-mic_df = pd.DataFrame(mic_update_list)
-mic_df['date'] = pd.to_datetime(mic_df['date'], format='%d/%m/%Y').dt.date #formatting
+#mic_df = pd.DataFrame(mic_update_list)
+#mic_df['date'] = pd.to_datetime(mic_df['date'], format='%d/%m/%Y').dt.date #formatting
 
 #email_df = pd.DataFrame(email_update)
 #staff_df = pd.DataFrame(list_of_staff)
@@ -174,15 +175,16 @@ class MainPage(tk.Frame):
         
         self.past_updates_df = []
         self.name = os.environ.get("USERNAME")
-        self.mic_email = self.name + "@rsmsingapore.sg" 
+        self.mic_email = self.name.lower() + "@rsmsingapore.sg" 
         
         #button functions
         def get_list():
             self.controller.print_log("main pg - get prospects button", "click")  
-            prospects_options = pic_df.loc[(pic_df["mic"] == self.mic_email) & (pic_df["latest_status"] == "Working")]["prospect"].values.tolist()
+            prospects_options = []
+            #prospects_options = pic_df.loc[(pic_df["mic"] == self.mic_email) & (pic_df["latest_status"] == "Working")]["prospect"].values.tolist()
             
             for i in pic_assignment_list:
-                if ((i["mic"] == name) and (i["latest_status"] == "Working")): #can change this to whatever
+                if ((i["mic"] == self.mic_email) and (i["latest_status"] == "Working")): #can change this to whatever
                     prospects_options.append(i["prospect"])
             
             self.cbb_prospect = ttk.Combobox(self, textvariable=self.temp_prospect, values=prospects_options)
@@ -205,16 +207,19 @@ class MainPage(tk.Frame):
             return friday
         
         def get_last_weeks_update():
-            
             # get temp_pic_assignment_id and latest status of prospects
             try:
                 self.temp_pic_assignment_id = ""
                 latest_status = ""
                 for i in pic_assignment_list:
-                    if ((i["mic"] == name) and (i["prospect"] == self.temp_prospect.get())): 
+                    if ((i["mic"] == self.mic_email) and (i["prospect"] == self.temp_prospect.get())): 
                         self.temp_pic_assignment_id = i["pic_assignment_id"]
                         latest_status = i["latest_status"]
-                        
+                
+                if self.temp_pic_assignment_id == "":
+                    messagebox.showerror("Error", "Prospect not selected. Please select and refresh again.")
+                    self.controller.print_log("main pg - get updates button - no prospect selected error message", "impression")  
+
 
                 # get updates before this week
                 self.cut_off = get_friday(current_date)
@@ -226,21 +231,22 @@ class MainPage(tk.Frame):
                 latest_past_update = ''
                 if len(past_update_list) == 0:
                     latest_past_update = "No past updates available."
-
+                
                 else:
                     for i in past_update_list:
                         if i["date"] == max(i["date"] for i in past_update_list):
                             latest_past_update = i["remark"]
-                
+                                            
+                self.txt_lupdate.config(state = 'normal')
+                self.txt_lupdate.delete(1.0, 'end')
                 self.txt_lupdate.insert('end', latest_past_update)
                 self.txt_lupdate.config(state = 'disabled')
+                
                 return self.txt_lupdate, self.temp_pic_assignment_id, self.cut_off ,self.cbb_status.set(latest_status)
-            
-            except:
+            except: #error message doesnt appear cos gui will just say "no past updates"
                 messagebox.showerror("Error", "Prospect not selected. Please select and refresh again.")
-            
-        
-        def get_current_update(): #this is a little repetitive
+
+        def get_current_update():
             current_update_list = []
             for i in mic_update_list:
                 if ((i["pic_assignment_id"] == self.temp_pic_assignment_id) and (i["date"] >= self.cut_off)):
@@ -261,28 +267,35 @@ class MainPage(tk.Frame):
             return self.txt_cupdate.insert(1.0, latest_current_update)
         
         def get_updates():
+            self.controller.print_log("main pg - get updates button", "click")  
             return get_last_weeks_update(), get_current_update()
         
         def update_summary():
             self.controller.print_log("main pg - update button", "click")  
-            self.controller.show_frame('UpdateSummary')
-            self.controller.print_log("update summary pg", "open page")  
             
-            summary_pg = self.controller.get_page('UpdateSummary')
-            summary_pg.lbl_name.config(text = "User: " + self.name)
-            summary_pg.lbl_prospect.config(text = "Prospect: " + self.temp_prospect.get())
-            summary_pg.lbl_status.config(text = "Status: " + self.temp_status.get())
-            summary_pg.lbl_cupdate.config(text = "Update: ")
-            
-            ## clear all text, re-update edits and disable editing for confirmation
-            summary_pg.txt_cupdate.config(state = 'normal')
-            summary_pg.txt_cupdate.delete('1.0', 'end')
-            summary_pg.txt_cupdate.insert('end', self.txt_cupdate.get("1.0", 'end-1c'))
-            summary_pg.txt_cupdate.config(state = 'disabled')
-            
-            # run function so we get temp_pic_assignment_id even if user doesn't click "refresh"
-            get_last_weeks_update()
-            return
+            if self.temp_prospect.get() == "" or self.temp_status.get() == "" or self.temp_update.get() == "":
+                messagebox.showerror("Error", "Please fill in all required fields before updating.")
+                self.controller.print_log("main pg - update button - fill in all required fields error message", "impression")  
+                
+            else:
+                self.controller.show_frame('UpdateSummary')
+                self.controller.print_log("update summary pg", "open page")  
+                
+                summary_pg = self.controller.get_page('UpdateSummary')
+                summary_pg.lbl_name.config(text = "User: " + self.name)
+                summary_pg.lbl_prospect.config(text = "Prospect: " + self.temp_prospect.get())
+                summary_pg.lbl_status.config(text = "Status: " + self.temp_status.get())
+                summary_pg.lbl_cupdate.config(text = "Update: ")
+                
+                ## clear all text, re-update edits and disable editing for confirmation
+                summary_pg.txt_cupdate.config(state = 'normal')
+                summary_pg.txt_cupdate.delete('1.0', 'end')
+                summary_pg.txt_cupdate.insert('end', self.txt_cupdate.get("1.0", 'end-1c'))
+                summary_pg.txt_cupdate.config(state = 'disabled')
+                
+                # run function so we get temp_pic_assignment_id even if user doesn't click "refresh"
+                get_last_weeks_update()
+                return
         
         def cancel_update():
             self.controller.print_log("main pg - cancel update button", "click")  
@@ -327,6 +340,7 @@ class MainPage(tk.Frame):
         # Layout 3. Entry
         self.txt_lupdate = tk.Text(self, borderwidth=0, bg='#DEDEDE')
         self.txt_lupdate.place(x=29, y=181, width=393, height=105)
+        self.txt_lupdate.config(state = 'disabled')
 
         self.txt_cupdate = tk.Text(self, wrap=tk.WORD, borderwidth=0, bg='#DEDEDE')
         self.txt_cupdate.place(x=29, y=320, width=393, height=129)
@@ -336,13 +350,13 @@ class MainPage(tk.Frame):
         self.btn_read = tk.Button(self, text='Read List', bg='#009cde', 
                                   **btn_opt, command = get_list)
         self.btn_refresh = tk.Button(self, text='Refresh', bg='#009cde', 
-                                     **btn_opt, command = get_last_weeks_update)
+                                     **btn_opt, command = get_updates)
 
         self.btn_read.place(x=10, y=10, width=85, height=25)
         self.btn_refresh.place(x=355, y=10, width=85, height=25)
         self.btn_cancel = tk.Button(self, text='CANCEL', 
                                     bg='#D02D2D',
-                                    command=lambda:controller.show_frame('UpdateCancel'),
+                                    command=cancel_update,
                                     **btn_opt)
         self.btn_update = tk.Button(self, text='UPDATE',
                                     bg='#4F9A35',
@@ -406,19 +420,20 @@ class UpdateSummary(tk.Frame):
                 for h in headers:
                     temp.append(v[header_to_key[h]])
                 put_values.append(temp)
-            spreadsheet.values_append("sheetName", {'valueInputOption': 'USER_ENTERED'}, {'values': put_values})    
+            spreadsheet.values_append("mic_update_e", {'valueInputOption': 'USER_ENTERED'}, {'values': put_values})    
             
             # update confirmation message'
-            confirmation_pg.lbl_info.config(text=f'Prospect ' + main_pg.temp_prospect.get() + ' updated!')
+            confirmation_pg.lbl_info.config(text='Prospect ' + main_pg.temp_prospect.get() + ' updated!')
             
             # show page
             self.controller.show_frame('UpdateConfirmation')
             self.controller.print_log("update confirmation pg", "open page")  
         
         def go_back():
-            
+            self.controller.print_log("update summary pg - go back", "click")  
             self.controller.show_frame('MainPage')
-            
+            self.controller.print_log("main page", "open page")  
+
             main_pg = self.controller.get_page('MainPage')
             
             self.txt_cupdate.config(state = 'normal')
@@ -453,7 +468,7 @@ class UpdateSummary(tk.Frame):
                                     **btn_opt)
         self.btn_goback.place(x=89, y=314, width=70, height=25)
         self.btn_confirm = tk.Button(self, text='CONFIRM', fg='#ffffff',
-                                     command=lambda:controller.show_frame('UpdateConfirmation'),
+                                     command=encrypt_upload,
                                      bg='#009cde',
                                      **btn_opt)
         self.btn_confirm.place(x=175, y=314, width=70, height=25)
@@ -487,10 +502,14 @@ class UpdateConfirmation(tk.Frame):
             self.controller.print_log("update confirmation pg - input new update button", "click")  
             
             start_pg = self.controller.get_page('MainPage')
-            start_pg.temp_prospect.set(" ")
+            start_pg.temp_prospect.set("")
+            
+            start_pg.txt_lupdate.config(state = 'normal')
+            start_pg.txt_lupdate.delete(1.0, 'end')
+            start_pg.txt_lupdate.config(state = 'disabled')
+                
             start_pg.txt_cupdate.delete(1.0, "end")
-            start_pg.txt_lupdate.config(text = " ")
-            start_pg.temp_status.set(" ")
+            start_pg.temp_status.set("")
             
             #show page
             self.controller.show_frame('MainPage')
@@ -502,21 +521,21 @@ class UpdateConfirmation(tk.Frame):
         
         # labels
         self.lbl_info = tk.Label(self,
-                                 text='Prospect <prospect name> updated!',
+                                 text='Prospect updated!', # message changes when encrypt upload runs
                                  **options)
         self.lbl_info.place(x=20, y=16)
         self.lbl_updateby = tk.Label(self,
-                                 text='Updated By: <name>',
+                                 text='Updated By: ' + name,
                                  **options)
         self.lbl_updateby.place(x=70, y=56)
         self.lbl_date = tk.Label(self,
-                                 text='Date: 08/03/2022',
+                                 text='Date: ' + str(date.today()),
                                  **options)
         self.lbl_date.place(x=70, y=76)
         
         # buttons
         self.btn_ok = tk.Button(self, text='OK', fg='#ffffff',
-                                     command=lambda:controller.show_frame('MainPage'),
+                                     command=new_update,
                                      bg='#009cde',
                                      **btn_opt)
         self.btn_ok.place(x=103, y=119, width=70, height=25)
@@ -554,8 +573,12 @@ class UpdateCancel(tk.Frame):
 
             start_pg = self.controller.get_page('MainPage')
             start_pg.temp_prospect.set("")
-            start_pg.temp_past_update.set("")
-            start_pg.temp_current_update.set("")
+            
+            start_pg.txt_lupdate.config(state = 'normal')
+            start_pg.txt_lupdate.delete(1.0, 'end')
+            start_pg.txt_lupdate.config(state = 'disabled')
+                
+            start_pg.txt_cupdate.delete(1.0, "end")
             start_pg.temp_status.set("")
 
             #show page
@@ -572,12 +595,12 @@ class UpdateCancel(tk.Frame):
         
         # buttons
         self.btn_no = tk.Button(self, text='NO', fg='#ffffff',
-                                     command=lambda:controller.show_frame('MainPage'),
+                                     command=dont_cancel,
                                      bg='#009cde',
                                      **btn_opt)
         self.btn_no.place(x=75, y=105, width=60, height=25)
         self.btn_yes = tk.Button(self, text='YES', fg='#ffffff',
-                                     command=lambda:controller.show_frame('MainPage'),
+                                     command=confirm_cancel,
                                      bg='#009cde',
                                      **btn_opt)
         self.btn_yes.place(x=141, y=105, width=60, height=25)
